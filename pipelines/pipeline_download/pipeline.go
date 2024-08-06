@@ -9,7 +9,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/t2bot/go-leaky-bucket"
-	"github.com/t2bot/go-singleflight-streams"
+	sfstreams "github.com/t2bot/go-singleflight-streams"
 	"github.com/t2bot/matrix-media-repo/common"
 	"github.com/t2bot/matrix-media-repo/common/rcontext"
 	"github.com/t2bot/matrix-media-repo/database"
@@ -148,6 +148,7 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		return r, nil
 	})
 	if errors.Is(err, common.ErrMediaQuarantined) {
+		restoreBucketMaxSize(limitBucket, didBucketMaxSize, ctx.Config.Downloads.MaxSizeBytes, 0)
 		cancel()
 		return nil, r, err
 	}
@@ -155,11 +156,13 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 	if errors.As(err, &notAllowedErr) {
 		if notAllowedErr.ServerName != ctx.Request.Host {
 			ctx.Log.Debug("'Not allowed' error is for another server - retrying")
+			restoreBucketMaxSize(limitBucket, didBucketMaxSize, ctx.Config.Downloads.MaxSizeBytes, 0)
 			cancel()
 			return Execute(ctx, origin, mediaId, opts)
 		}
 	}
 	if err != nil {
+		restoreBucketMaxSize(limitBucket, didBucketMaxSize, ctx.Config.Downloads.MaxSizeBytes, 0)
 		cancel()
 		return nil, nil, err
 	}
@@ -167,25 +170,20 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		// Re-fetch, hopefully from cache
 		record, err = recordSf.Do(sfKey, fetchRecordFn)
 		if err != nil {
+			restoreBucketMaxSize(limitBucket, didBucketMaxSize, ctx.Config.Downloads.MaxSizeBytes, 0)
 			cancel()
 			return nil, nil, err
 		}
 		if record == nil {
+			restoreBucketMaxSize(limitBucket, didBucketMaxSize, ctx.Config.Downloads.MaxSizeBytes, 0)
 			cancel()
 			return nil, nil, errors.New("unexpected error: no viable record and no error condition")
 		}
 	}
-	if didBucketMaxSize && limitBucket != nil {
-		// We need to restore the difference between max size and actual size to the caller's bucket.
-		// If for some reason the downloaded file is larger than the max size, the bucket will be added to instead.
-		// We should only get a limit error when the file is larger than the max size.
-		if limitErr := limitBucket.Drain(ctx.Config.Downloads.MaxSizeBytes - record.SizeBytes); limitErr != nil {
-			cancel()
-			if errors.Is(limitErr, leaky.ErrBucketFull) {
-				return nil, nil, common.ErrRateLimitExceeded
-			}
-			return nil, nil, limitErr
-		}
+	err = restoreBucketMaxSize(limitBucket, didBucketMaxSize, ctx.Config.Downloads.MaxSizeBytes, record.SizeBytes)
+	if err != nil {
+		cancel()
+		return nil, nil, err
 	}
 	if opts.RecordOnly {
 		if r != nil {
@@ -198,4 +196,19 @@ func Execute(ctx rcontext.RequestContext, origin string, mediaId string, opts Do
 		return record, nil, nil
 	}
 	return record, readers.NewCancelCloser(r, cancel), nil
+}
+
+func restoreBucketMaxSize(limitBucket *leaky.Bucket, didBucketMaxSize bool, maxSizeBytes int64, sizeBytes int64) error {
+	if didBucketMaxSize && limitBucket != nil {
+		// We need to restore the difference between max size and actual size to the caller's bucket.
+		// If for some reason the downloaded file is larger than the max size, the bucket will be added to instead.
+		// We should only get a limit error when the file is larger than the max size.
+		if limitErr := limitBucket.Drain(maxSizeBytes - sizeBytes); limitErr != nil {
+			if errors.Is(limitErr, leaky.ErrBucketFull) {
+				return common.ErrRateLimitExceeded
+			}
+			return limitErr
+		}
+	}
+	return nil
 }
