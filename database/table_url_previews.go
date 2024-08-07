@@ -26,13 +26,16 @@ type DbUrlPreview struct {
 }
 
 const selectUrlPreview = "SELECT url, error_code, bucket_ts, site_url, site_name, resource_type, description, title, image_mxc, image_type, image_size, image_width, image_height, language_header FROM url_previews WHERE url = $1 AND bucket_ts = $2 AND language_header = $3;"
+const selectAllPreviewRelatedMxcs = "SELECT image_mxc FROM url_previews;"
+
 const insertUrlPreview = "INSERT INTO url_previews (url, error_code, bucket_ts, site_url, site_name, resource_type, description, title, image_mxc, image_type, image_size, image_width, image_height, language_header) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);"
 const deleteOldUrlPreviews = "DELETE FROM url_previews WHERE bucket_ts <= $1;"
 
 type urlPreviewsTableStatements struct {
-	selectUrlPreview     *sql.Stmt
-	insertUrlPreview     *sql.Stmt
-	deleteOldUrlPreviews *sql.Stmt
+	selectUrlPreview            *sql.Stmt
+	insertUrlPreview            *sql.Stmt
+	deleteOldUrlPreviews        *sql.Stmt
+	selectAllPreviewRelatedMxcs *sql.Stmt
 }
 
 type urlPreviewsTableWithContext struct {
@@ -46,6 +49,9 @@ func prepareUrlPreviewsTables(db *sql.DB) (*urlPreviewsTableStatements, error) {
 
 	if stmts.selectUrlPreview, err = db.Prepare(selectUrlPreview); err != nil {
 		return nil, errors.New("error preparing selectUrlPreview: " + err.Error())
+	}
+	if stmts.selectAllPreviewRelatedMxcs, err = db.Prepare(selectAllPreviewRelatedMxcs); err != nil {
+		return nil, errors.New("error preparing selectAllPreviewRelatedMxcs: " + err.Error())
 	}
 	if stmts.insertUrlPreview, err = db.Prepare(insertUrlPreview); err != nil {
 		return nil, errors.New("error preparing insertUrlPreview: " + err.Error())
@@ -72,6 +78,25 @@ func (s *urlPreviewsTableWithContext) Get(url string, ts int64, languageHeader s
 		return nil, nil
 	}
 	return val, err
+}
+
+func (s *urlPreviewsTableWithContext) GetAllPreviewRelatedMxcs() ([]string, error) {
+	mxcs := make([]string, 0)
+	rows, err := s.statements.selectAllPreviewRelatedMxcs.Query()
+	if err != nil {
+		return mxcs, err
+	}
+	for {
+		if !rows.Next() {
+			break
+		}
+		mxc := ""
+		if err = rows.Scan(&mxc); err != nil {
+			return mxcs, err
+		}
+		mxcs = append(mxcs, mxc)
+	}
+	return mxcs, nil
 }
 
 func (s *urlPreviewsTableWithContext) Insert(p *DbUrlPreview) error {

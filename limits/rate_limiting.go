@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/didip/tollbooth/v7"
-	"github.com/didip/tollbooth/v7/libstring"
 	"github.com/didip/tollbooth/v7/limiter"
 	"github.com/t2bot/matrix-media-repo/api/_responses"
 	"github.com/t2bot/matrix-media-repo/common/config"
@@ -33,5 +32,6 @@ func GetRequestLimiter() *limiter.Limiter {
 
 func GetRequestIP(r *http.Request) string {
 	// Same implementation as tollbooth
-	return libstring.RemoteIP(requestLimiter.GetIPLookups(), requestLimiter.GetForwardedForIndexFromBehind(), r)
+	return "127.0.0.1"
+	// return libstring.RemoteIP(requestLimiter.GetIPLookups(), requestLimiter.GetForwardedForIndexFromBehind(), r)
 }

@@ -53,7 +53,7 @@ require (
 	github.com/redis/go-redis/v9 v9.5.1
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/stretchr/testify v1.9.0
-	github.com/strukturag/libheif v1.17.6
+	github.com/strukturag/libheif v1.16.1
 	github.com/t2bot/go-leaky-bucket v1.0.0
 	github.com/t2bot/go-singleflight-streams v1.0.0
 	github.com/t2bot/go-typed-singleflight v0.0.3
